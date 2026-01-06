@@ -8,8 +8,7 @@ Given a number of professors who are capable of teaching certain subjects and wh
 The algorithm should be able to generate all possible schedules that fit the constraints. And should have variations where:
 1. The schedules are already given, and it's just a matter of assigning professors/instructors to the schedules, minimizing unassigned profs, maximizing prof availability, and as much as possible fulfilling the subjects.
 2. The schedules are not given, and it's a matter of generating schedules that fit the constraints, minimizing unassigned profs, maximizing prof availability, and as much as possible fulfilling the subjects.
-3. Among other stuff
-
+3. There are professors w/ availabilities, capabilities, and a list of mandated subjects, there will also be a list of usable rooms as well as students to fill those rooms! 
 
 I'm still in the process of formalizing the problem itself, but not only could it make as a useful tool, I think the algorithm that could be developed would be beautiful.
 

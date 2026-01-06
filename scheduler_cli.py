@@ -1,12 +1,18 @@
-from scheduler_engine import Section, ScheduleGenerator
+import sys
+import os
+
+# Ensure the root directory is in sys.path so we can import from scheduler package
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from scheduler.scheduler_engine import Section, generate_schedules, Constraints
 
 def main():
     # Define constraints
-    constraints = {
+    constraints: Constraints = {
         'earliestStart': '08:00',
         'latestEnd': '18:00',
         'allowFull': False,
-        'allowAtRisk': True,
+        'allowAt_risk': True,
         'maxSchedules': 5,
         'maxFullPerSchedule': 0
     }
@@ -21,8 +27,8 @@ def main():
 
     # Course 2: Physics
     physics_sections = [
-        Section(201, "MW 10:00 AM - 11:30 AM", "10/25", "OK"), # Conflicts with Math 101 (time)
-        Section(202, "TTh 11:00 AM - 12:30 PM", "5/25", "OK"),  # Conflicts with Math 102 (time - no, wait TTh 09:00-10:30 vs 11:00-12:30 is OK)
+        Section(201, "MW 10:00 AM - 11:30 AM", "10/25", "OK"),
+        Section(202, "TTh 11:00 AM - 12:30 PM", "5/25", "OK"),
         Section(203, "F 09:00 AM - 12:00 PM", "20/25", "OK")
     ]
 
@@ -35,8 +41,7 @@ def main():
     all_courses = [math_sections, physics_sections, cs_sections]
 
     print("--- Generating Schedules ---")
-    generator = ScheduleGenerator(all_courses, constraints)
-    schedules = generator.generate()
+    schedules = generate_schedules(all_courses, constraints)
 
     print(f"Found {len(schedules)} valid schedules.\n")
 
