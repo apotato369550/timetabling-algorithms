@@ -42,7 +42,53 @@ Verify the engine's correctness with the built-in test suite:
 python3 test_scheduler.py
 ```
 
-## Future Roadmap
-*   Support for professor-specific constraints.
-*   Block sectioning logic for departmental use.
-*   Optimization for large-scale enrollment data.
+## Phase 3: Algorithmic Exploration & Research (In Progress)
+
+The project is expanding from a working implementation to a **research investigation** of multiple algorithmic paradigms. Rather than assuming CP-SAT is the optimal approach, we explore tradeoffs between **speed, optimality, and practical applicability**.
+
+### 4 Research Variations (Increasing Complexity)
+
+1. **Variation 1: Schedule Generation**
+   - Given subjects and section options, find non-overlapping schedules
+   - Constraints: Time conflicts only
+   - Complexity: Low (good heuristic testbed)
+   - Goal: Can fast heuristics match CP-SAT optimality?
+
+2. **Variation 2: Professor Assignment**
+   - Schedules fixed; assign professors optimally
+   - Constraints: Professor time conflicts + capability matching
+   - Complexity: Medium (bipartite matching problem)
+   - Goal: How much do preferences affect performance?
+
+3. **Variation 3: Co-Optimization**
+   - Generate schedules AND assign professors simultaneously
+   - Constraints: Both schedule + assignment constraints active
+   - Complexity: High (exponential in two dimensions)
+   - Goal: Can heuristics outperform naive CP-SAT?
+
+4. **Variation 4: Resource-Constrained Scheduling**
+   - Schedule + assign + allocate rooms with capacity limits
+   - Constraints: All previous plus room availability and professor loads
+   - Complexity: Very high (NP-hard RCPSP variant)
+   - Goal: What's the practical feasibility vs. optimality tradeoff?
+
+### Algorithmic Approach
+
+**Primary**: Backtracking with intelligent heuristics (Most-Constrained-First, Forward Checking, Arc Consistency)
+**Innovation**: Heuristics guide rapid feasible solution discovery
+**Verification**: CP-SAT used to benchmark optimality and verify bounds
+**Analysis**: Compare solution quality, runtime, scalability across approaches
+
+### Research Goals
+
+- **Feasibility vs. Optimality**: Can fast heuristics find feasible solutions? How close to optimal?
+- **Scalability**: How do backtracking + heuristics scale vs. pure CP-SAT?
+- **Heuristic Effectiveness**: Which heuristics work best for different problem variations?
+- **Practical Guidance**: When should practitioners use each approach?
+
+## Phase 4: Research Documentation & Publication (Planned)
+
+- Performance benchmarks on realistic datasets
+- Tradeoff analysis across algorithmic approaches
+- Publishable research findings on timetabling heuristics
+- Implementation guides and best practices
