@@ -1,0 +1,38 @@
+# Example Configuration for Timetabling Scheduler
+#
+# This file defines constraints for the course scheduling algorithm.
+# Copy this file and modify constraints as needed for your use case.
+
+constraints:
+  # Earliest class start time (HH:MM format, 24-hour)
+  # Default: 08:00 (8 AM)
+  # Classes starting before this time will be filtered out
+  earliestStart: "08:00"
+
+  # Latest class end time (HH:MM format, 24-hour)
+  # Default: 18:00 (6 PM)
+  # Classes ending after this time will be filtered out
+  latestEnd: "18:00"
+
+  # Allow sections marked as FULL (enrollment at capacity)
+  # Default: false
+  # If true, includes sections with current enrollment >= total capacity
+  # If false, filters out full sections
+  allowFull: false
+
+  # Allow sections marked as AT_RISK (low enrollment)
+  # Default: true
+  # If true, includes sections with low enrollment numbers
+  # If false, filters out at-risk sections
+  allowAt_risk: true
+
+  # Maximum number of valid schedules to generate
+  # Default: 50
+  # Scheduler stops searching after finding this many non-conflicting schedules
+  # Set higher for exhaustive search, lower for faster results
+  maxSchedules: 5
+
+  # Maximum number of full sections per generated schedule
+  # Default: 0 (no full sections allowed)
+  # Prevents schedules with too many high-enrollment sections
+  maxFullPerSchedule: 1
