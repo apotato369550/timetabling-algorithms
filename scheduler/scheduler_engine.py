@@ -1,6 +1,8 @@
 import re
-from typing import List, Dict, Optional, Any, TypedDict, Set
+from typing import List, Dict, Optional, Any, TypedDict, Set, Tuple
 from dataclasses import dataclass
+from scheduler.statistics import Statistics
+from scheduler.tracing import Tracing
 
 # --- Types ---
 
@@ -176,20 +178,28 @@ def create_schedule_object(sections: List[Section], constraints: Constraints) ->
 
 def generate_schedules(
     course_sections: List[List[Section]], 
-    constraints: Constraints
-) -> List[GeneratedSchedule]:
+    constraints: Constraints,
+    enable_tracing: bool = False
+) -> Tuple[List[GeneratedSchedule], Dict[str, Any]]:
+    
+    # Initialize instrumentation
+    stats = Statistics()
+    tracer = Tracing(enabled=enable_tracing)
     
     # Pre-filter viable sections and parse their schedules once
     viable_lists = []
-    for sections in course_sections:
+    for course_idx, sections in enumerate(course_sections):
         viable = []
         for s in sections:
             if is_viable(s, constraints):
                 parsed = parse_schedule_string(s.schedule)
                 # Create a new section object with the parsed schedule attached
                 viable.append(Section(s.group, s.schedule, s.enrolled, s.status, parsed))
+            else:
+                stats.increment_pruned_viability()
+                tracer.log_prune("VIABILITY", f"Course {course_idx}: Group {s.group}")
         if not viable:
-            return []
+            return [], stats.get_stats()
         viable_lists.append(viable)
 
     results = []
@@ -197,6 +207,8 @@ def generate_schedules(
     max_full = constraints.get('maxFullPerSchedule', 1)
 
     def backtrack(step: int, current_selection: List[Section]):
+        stats.increment_node()
+        
         if len(results) >= max_schedules:
             return
 
@@ -204,12 +216,21 @@ def generate_schedules(
             full_count = sum(1 for s in current_selection if is_full(s))
             if full_count <= max_full:
                 results.append(create_schedule_object(current_selection, constraints))
+                stats.increment_valid_schedules()
+                tracer.log_valid_schedule(len(results))
+            else:
+                stats.increment_pruned_full()
+                tracer.log_prune("FULL_LIMIT", f"Too many full courses: {full_count} > {max_full}")
             return
 
         for section in viable_lists[step]:
+            tracer.log_try(step, section)
             conflict = any(has_conflict(section, s) for s in current_selection)
             if not conflict:
                 backtrack(step + 1, current_selection + [section])
+            else:
+                stats.increment_pruned_conflict()
+                tracer.log_prune("CONFLICT", f"Course {step}: Group {section.group}")
 
     backtrack(0, [])
-    return results
+    return results, stats.get_stats()
