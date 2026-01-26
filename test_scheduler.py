@@ -1,14 +1,14 @@
 import unittest
-from scheduler.scheduler_engine import (
-    parse_schedule_string, 
-    Section, 
-    has_conflict, 
+from core import (
+    parse_schedule_string,
+    Section,
+    has_conflict,
     is_viable,
-    generate_schedules, 
-    is_full, 
+    is_full,
     is_at_risk,
     Constraints
 )
+from scheduler.scheduler_engine import generate_schedules
 
 class TestFunctionalEngine(unittest.TestCase):
 
