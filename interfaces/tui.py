@@ -5,7 +5,7 @@ Provides menu-driven interface for:
 - Algorithm selection
 - Data loading (CSV or synthetic)
 - Constraint configuration
-- Algorithm execution
+- Algorithm execution with optional verification
 - Results visualization
 """
 
@@ -28,21 +28,11 @@ def display_header():
 
 def select_algorithm():
     """Prompt user to select algorithm"""
-    from algorithms import load_algorithms
-
-    algos = load_algorithms()
-    algo_list = list(algos.keys())
-
-    if not algo_list:
-        console.print("[red]Error: No algorithms found[/red]")
-        return None
-
     console.print("\n[bold]Available Algorithms:[/bold]")
-    for i, name in enumerate(algo_list, 1):
-        console.print(f"  {i}. {name}")
+    console.print("  1. Backtracking V1")
 
-    choice = Prompt.ask("Select algorithm", choices=[str(i) for i in range(1, len(algo_list) + 1)])
-    return algo_list[int(choice) - 1]
+    choice = Prompt.ask("Select algorithm", choices=["1"])
+    return "Backtracking V1"
 
 def select_data_source():
     """Prompt user for data source (CSV or synthetic)"""
@@ -79,19 +69,26 @@ def load_data_synthetic():
     console.print(f"[green]✓ Generated {len(problem)} courses[/green]")
     return problem
 
-def run_algorithm(algo_name, problem):
-    """Execute algorithm and display results"""
-    from algorithms import get_algorithm
-    from core import Statistics
+def select_run_mode():
+    """Prompt user to select run mode (with or without verification)"""
+    console.print("\n[bold]Run Mode:[/bold]")
+    console.print("  1. Standard (Backtracking only)")
+    console.print("  2. With Verification (Backtracking + CP-SAT comparison)")
+
+    choice = Prompt.ask("Select run mode", choices=["1", "2"])
+    return choice == "2"
+
+def run_algorithm(algo_name, problem, verify=False):
+    """Execute algorithm and optionally verify with CP-SAT"""
+    from scheduler.scheduler_engine import generate_schedules
+    from verification.cpsat_wrapper import solve_with_cpsat
+    from interfaces.output import format_verification_comparison
 
     try:
-        algo = get_algorithm(algo_name)
-        meta = algo.metadata()
-
-        console.print(f"\n[bold]Running: {meta['name']} (v{meta['version']})[/bold]")
+        console.print(f"\n[bold]Running: Backtracking V1[/bold]")
         console.print(f"Problem size: {len(problem)} courses")
 
-        # Simple constraints for now
+        # Setup constraints
         constraints = {
             'earliestStart': '08:00',
             'latestEnd': '18:00',
@@ -101,17 +98,55 @@ def run_algorithm(algo_name, problem):
             'maxFullPerSchedule': 0
         }
 
+        # Run backtracking
         start = time.perf_counter()
-        solutions = algo.solve(problem, constraints)
-        elapsed = (time.perf_counter() - start) * 1000
+        solutions, stats = generate_schedules(
+            list(problem.values()),
+            constraints,
+            enable_tracing=False
+        )
+        bt_elapsed = (time.perf_counter() - start) * 1000
 
-        console.print(f"[green]✓ Found {len(solutions)} valid schedule(s) in {elapsed:.2f}ms[/green]")
+        console.print(f"[green]✓ Found {len(solutions)} valid schedule(s) in {bt_elapsed:.2f}ms[/green]")
 
-        # Display results
-        display_results(solutions, elapsed)
+        # If verification requested, run CP-SAT
+        if verify:
+            console.print(f"\n[bold]Running verification with CP-SAT...[/bold]")
+
+            cpsat_result = solve_with_cpsat(problem, time_limit_s=10)
+
+            console.print(f"[green]✓ CP-SAT completed in {cpsat_result['runtime_ms']:.2f}ms[/green]")
+
+            # Build comparison result dicts
+            bt_result = {
+                'runtime_ms': bt_elapsed,
+                'feasible': len(solutions) > 0,
+                'solution_count': len(solutions),
+                'status': 'FEASIBLE' if len(solutions) > 0 else 'INFEASIBLE'
+            }
+
+            # Display comparison table
+            comparison = format_verification_comparison(bt_result, cpsat_result)
+            if isinstance(comparison, str):
+                # ASCII table
+                console.print(comparison)
+            else:
+                # Rich table
+                console.print(comparison)
+
+            # Check for mismatch
+            if bt_result['feasible'] != cpsat_result['feasible']:
+                console.print(
+                    "[yellow]⚠ Feasibility mismatch between algorithms[/yellow]"
+                )
+
+        # Display results table
+        display_results(solutions, bt_elapsed)
 
     except Exception as e:
         console.print(f"[red]✗ Algorithm error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
 
 def display_results(solutions, elapsed_ms):
     """Display algorithm results"""
@@ -152,10 +187,13 @@ def run_interactive():
             if not problem:
                 continue
 
-            # Step 3: Run
-            run_algorithm(algo_name, problem)
+            # Step 3: Select run mode (standard or with verification)
+            verify = select_run_mode()
 
-            # Step 4: Continue?
+            # Step 4: Run
+            run_algorithm(algo_name, problem, verify=verify)
+
+            # Step 5: Continue?
             if not Confirm.ask("\n[bold]Run another test?[/bold]"):
                 break
 
@@ -164,5 +202,7 @@ def run_interactive():
             break
         except Exception as e:
             console.print(f"[red]Unexpected error: {e}[/red]")
+            import traceback
+            traceback.print_exc()
 
     console.print("[dim]Goodbye![/dim]")
