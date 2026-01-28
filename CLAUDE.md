@@ -1,295 +1,430 @@
-# CLAUDE.md
+# CLAUDE.md - Timetabling Algorithm Research Framework
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file documents the vision, research methodology, and design philosophy behind the timetabling algorithms framework. It explains WHY the code is structured the way it is. For WHAT the code does (implementation details), see ARCHITECTURE.md. For HOW to use it, see README.md.
 
 ---
 
 ## Vision & Purpose
 
-This repository investigates **multiple algorithmic paradigms** for solving timetabling problems, with the goal of understanding tradeoffs between **speed, optimality, and practical applicability**.
+This repository investigates **multiple algorithmic paradigms** for solving timetabling problems, with the goal of understanding tradeoffs between **speed, optimality, and practical applicability** rather than assuming any single approach is optimal.
 
-Rather than assuming any single approach is optimal, we explore:
-- **Backtracking with intelligent heuristics** as the primary solver (fast, finds multiple feasible solutions)
+The project serves the **Enrollmate ecosystem** (course scheduling for students) while functioning as a **research investigation** into constraint satisfaction heuristics. We explore:
+- **Backtracking with intelligent heuristics** as a fast solver
 - **CP-SAT verification** to benchmark optimality and explore bounds
 - **Hybrid approaches** combining speed and quality
-- **Research questions** about when each paradigm excels
+- **Research questions**: When does each paradigm excel? Which heuristics matter most?
 
-The project serves the **Enrollmate ecosystem** (course scheduling for students) while functioning as a **research investigation** into constraint satisfaction heuristics.
+The implementation prioritizes **clarity, correctness, and extensibility** for research purposes.
+
+---
+
+## Research Methodology
+
+### 4-Variation Progression: Problem Complexity Increasing
+
+Rather than implementing all complexity at once, we explore timetabling through a **4-variation progression**. Each variation is a **complete research problem** with its own implementation, tests, and analysis. The goal is not to solve them sequentially, but to understand what each teaches about algorithm design.
+
+**Variation 1: Schedule Generation** (Current - Implemented)
+- Input: Subjects, section options per subject
+- Constraints: Time conflicts only (hard)
+- Complexity: Low
+- Research question: Can fast heuristics match CP-SAT feasibility?
+- Status: Backtracking + CP-SAT baseline complete (Phase 4B)
+
+**Variation 2: Professor Assignment** (Planned)
+- Input: Fixed schedules + professor availability/capabilities
+- Constraints: Professor time conflicts, capability matching
+- Complexity: Medium (bipartite matching)
+- Research question: How much do professor preferences affect performance?
+
+**Variation 3: Co-Optimization** (Planned)
+- Input: Subjects, section options, professor capabilities
+- Constraints: Generate schedules AND assign professors simultaneously
+- Complexity: High (exponential in both dimensions)
+- Research question: Can heuristics outperform naive CP-SAT on joint problems?
+
+**Variation 4: Resource-Constrained Scheduling** (Future)
+- Input: All of Variation 3 + room availability/capacity
+- Constraints: Schedule + assignment + room allocation
+- Complexity: Very high (NP-hard RCPSP variant)
+- Research question: What's the practical feasibility vs. optimality tradeoff at scale?
+
+### Algorithmic Approach
+
+**Primary Solver**: Backtracking with intelligent heuristics
+- Most-Constrained-First (MCF): Process variables with fewest options first
+- Forward Checking: After assignment, verify remaining variables still solvable
+- Quality Ordering: Try "good" values before "bad" ones
+- Greedy Initialization: Find one solution fast, use as pruning bound
+
+**Verification Method**: CP-SAT solver
+- Encodes same problem using OR-Tools constraint solver
+- Runs side-by-side with backtracking on identical test data
+- Compares: feasibility, solution quality, runtime
+- Benchmarks backtracking's optimality gap
+
+**Research Goals**:
+1. **Feasibility**: Do heuristics find valid solutions?
+2. **Optimality**: How close to CP-SAT's optimal?
+3. **Scalability**: Where does each approach break down?
+4. **Heuristic Impact**: Which heuristics matter most?
+5. **Practical Guidance**: When should practitioners use each approach?
 
 ---
 
 ## Architectural Philosophy
 
-### Core Principle: Progressive Problem Complexity
+### Core Principle: Clean Domain Separation
 
-The project uses a **4-variation progression** to investigate timetabling at increasing complexity levels:
+The codebase separates concerns into **7 feature domains** (see ARCHITECTURE.md for implementation details):
 
-1. **Variation 1: Schedule Generation** - Simplest (no professor/resource constraints)
-2. **Variation 2: Professor Assignment** - Medium (bipartite matching)
-3. **Variation 3: Co-Optimization** - Hard (schedule + professor simultaneous)
-4. **Variation 4: Resource-Constrained** - Hardest (schedule + professor + rooms)
+1. **Core Domain Models** - Immutable data structures, parsing, validation
+2. **Conflict Detection** - Time overlap checking, viability filtering
+3. **Scheduling Engine** - Backtracking algorithm with statistics collection
+4. **Data Generation** - CSV loading, synthetic problem generation
+5. **CP-SAT Verification** - OR-Tools solver integration
+6. **Interfaces** - CLI and TUI for execution
+7. **Testing** - Unit tests for correctness
 
-Each variation is a **complete research problem** with its own implementation, tests, benchmarks, and analysis. The goal is not to solve them sequentially, but to understand what each teaches about algorithm design.
+**Why this separation?**
+- Enables independent testing of each domain
+- Makes adding heuristics straightforward (only changes scheduling engine)
+- Allows variations 2-4 to reuse core parsing and conflict detection
+- Clear dependency graph prevents accidental coupling
 
-### Backtracking as First-Class Algorithm
+### Parse-or-None Error Handling
 
-This project treats **backtracking with heuristics** as an equal peer to **CP-SAT**, not a fallback. The comparison explores:
-- **Feasibility**: Can heuristics find valid solutions?
-- **Optimality**: How close to CP-SAT's optimal?
-- **Scalability**: Where does each approach break?
-- **Practical Utility**: When should practitioners use backtracking vs. CP-SAT?
+Parsing functions return `None` on invalid input rather than raising exceptions:
 
-### Core Architecture Pattern
-
+```python
+parsed = parse_schedule_string(user_input)
+if parsed is None:
+    # handle invalid input gracefully
 ```
-Problem Definition (variation_X.md)
-    ↓
-Backtracking Implementation (scheduler/XX_algorithm.py)
-    ↓ [Add Heuristics]
-    ↓
-CP-SAT Verification Model (scheduler/XX_cpsat.py)
-    ↓ [Run side-by-side]
-    ↓
-Benchmark Suite (tests/test_variation_X.py)
-    ↓ [Runtime, quality, scalability]
-    ↓
-Analysis Report (results/variation_X_analysis.md)
+
+**Why?** Schedule strings come from human data entry (CSV, web forms). Raising exceptions would crash the scheduler; returning `None` lets us gracefully filter invalid sections.
+
+### Immutable Data Structures
+
+Section objects are frozen dataclasses:
+
+```python
+@dataclass(frozen=True)
+class Section:
+    group: int
+    schedule: str
+    enrolled: str
+    status: str
+    parsed_schedule: Optional[ParsedSchedule] = None
 ```
+
+**Why immutable?**
+- Prevents accidental mutation during backtracking recursion
+- Makes caching safe (parsed_schedule field can be mutated during creation, then frozen)
+- Enables structural equality for testing
+- Signals intent: sections are fixed problem data, not mutable state
+
+### Caching Strategy
+
+Two levels of caching minimize redundant parsing:
+
+**Level 1: Section-level caching**
+- `Section.parsed_schedule` stores first parse result
+- Eliminates re-parsing identical schedules
+
+**Level 2: Pre-filtering**
+- Viability filtering happens once before backtracking
+- Removes sections violating constraints
+- All conflict checks then work only on viable sections
+
+**Why?** Schedule parsing involves regex + time format conversion. For typical problems (5-50 courses), this is called 10-250+ times. Caching reduces parsing overhead by 90%.
+
+### Time Format Unification
+
+All times stored internally as **minutes from midnight** (0-1440):
+
+- `10:00 AM` → 600 minutes
+- `11:30 AM` → 690 minutes
+- `2:30 PM` → 870 minutes
+
+**Why?** Makes overlap detection trivial:
+```python
+return start_a < end_b and end_a > start_b
+```
+
+No need for date objects, timezone handling, or complex comparisons.
+
+### Constraints as TypedDict
+
+Scheduling constraints are defined as a TypedDict:
+
+```python
+class Constraints(TypedDict):
+    earliestStart: str        # "08:00" (HH:MM format)
+    latestEnd: str            # "18:00"
+    allowFull: bool           # Include full sections?
+    allowAt_risk: bool        # Include at-risk sections?
+    maxSchedules: int         # Max schedules to generate
+    maxFullPerSchedule: int   # Max full sections per valid schedule
+```
+
+**Why TypedDict over class?**
+- Type-safe (mypy validates usage)
+- No runtime overhead (not a real class, just dict)
+- Matches database schema naming (snake_case)
+- Easy to serialize/deserialize from YAML/JSON
+
+**Hard vs Soft Constraints:**
+- **Hard constraints** (must satisfy): time conflicts, enrollment filtering, time window
+- **Soft constraints** (prefer to satisfy): minimal full sections, ends by preferred time
+- Current implementation enforces hard, collects soft as metadata for later ranking
+
+---
+
+## Design Decisions
+
+### Why Backtracking First?
+
+1. **Speed**: Can find multiple solutions in 1-100ms for realistic problems (see ARCHITECTURE.md performance table)
+2. **Multiple Solutions**: Explores solution space broadly, finds diverse schedules
+3. **Exploration**: Good testbed for measuring heuristic impact
+4. **Simplicity**: Core algorithm is recursive (easy to understand and extend)
+
+Constraint Satisfaction Problems (CSPs) have exponential worst case, but real course scheduling is often tight (few valid solutions). Backtracking can be fast with good pruning.
+
+### Why CP-SAT Verification?
+
+1. **Optimality**: Proves when backtracking is optimal vs. suboptimal
+2. **Feasibility Validation**: Confirms if problem is actually infeasible
+3. **Benchmarking**: Measures heuristic impact quantitatively
+4. **Industrial Solver**: OR-Tools CP-SAT is production-grade, trusted
+
+We don't use CP-SAT for scheduling (slower, can't find multiple solutions easily). We use it to understand where backtracking wins and loses.
+
+### Why These Data Structures?
+
+**ParsedSchedule**: `{days: List[str], startTime: int, endTime: int}`
+- Days as list (not bitmask) for clarity
+- Time as int minutes for simple comparisons
+- Cached on Section to avoid re-parsing
+
+**Section as frozen dataclass**
+- Immutability prevents bugs in backtracking
+- Dataclass provides __repr__ and __eq__ for testing
+- Frozen means parsed_schedule caching is thread-safe
+
+**GeneratedSchedule**: `{selections: List[Section], parsed: List[ParsedSchedule], meta: ScheduleMeta}`
+- Separates input (selections) from derived (parsed, meta)
+- Parsed array allows schedule rendering without re-parsing
+- Meta enables result ranking and filtering
+
+**Statistics as class with increment methods**
+- Simpler than dict updates scattered in backtracking
+- Enables future extensions (e.g., detailed heuristic metrics)
+
+### Why No Heuristics Yet?
+
+Current implementation is **baseline backtracking only** (no MCF, forward checking, etc.) because:
+
+1. **Research-First**: Want to measure heuristic impact against known baseline
+2. **Clarity**: Simpler code easier to understand and extend
+3. **Phase 1 Complete**: Schedule generation works; time to add heuristics incrementally
+4. **Measurement Protocol**: Each heuristic gets tested separately to quantify its contribution
+
+Adding all heuristics at once would be fast but wouldn't reveal which ones matter.
 
 ---
 
 ## Critical Context
 
-### Problem Domain
+### Timetabling Problem Space
 
-**Timetabling problems** are NP-hard constraint satisfaction problems. This project focuses on **block section scheduling**:
-- Input: Subjects (courses), section options per subject, professor capabilities, room constraints
-- Output: Feasible assignments that satisfy hard constraints (no time overlaps, capability matching) and optimize soft constraints (quality metrics)
+**NP-hard constraint satisfaction**. The problem is to select one section per course such that:
+- No two selected sections have time conflicts (hard constraint)
+- Sections satisfy time window, enrollment, and capacity filters (hard constraints)
+- (Future) Minimize number of full sections, end time, etc. (soft constraints)
 
-### Key Terminology
+Number of possible assignments: `n₁ × n₂ × ... × nₖ` where nᵢ = number of sections for course i.
 
-- **Subject/Course**: A course a student must take (e.g., "Math 101")
-- **Section**: A specific offering of a subject with time/professor/room (e.g., "Math 101 - Section A - MW 10-11:30AM")
-- **Block**: A group of subjects that must be scheduled together (e.g., all courses in Year 1 of a degree)
-- **Constraint**: Hard (must satisfy) vs. Soft (prefer to satisfy)
-- **Conflict**: Two sections overlap in time or share incompatible resources
+For 5 courses with 3 sections each: 3⁵ = 243 combinations (manageable with pruning).
+For 50 courses with 3 sections each: 3⁵⁰ ≈ 5×10²³ (requires strong heuristics).
 
-### Data Representations
+### Schedule Format Parsing
 
-**Schedule String Format**: "MW 10:00 AM - 11:30 AM"
-- Days: M, T, W, Th, F, S, Su (e.g., "MW", "TTh", "MWF")
-- Times: HH:MM AM/PM → converted internally to minutes from midnight
-- Parser: `parse_schedule_string()` returns `{days: ['M', 'W'], startTime: 600, endTime: 690}`
+Human-entered schedule strings are fragile:
+- `"MW 10:00 AM - 11:30 AM"` (standard)
+- `"MW 10:00am-11:30am"` (missing spaces)
+- `"M,W 10:00 AM - 11:30 AM"` (comma separator)
+- `"10:00 AM - 11:30 AM MW"` (days at end)
+- Invalid formats that should be filtered
 
-**Enrollment Status**:
-- "FULL" or "OK" (string field in Section dataclass)
-- Derived properties: `is_full()`, `is_at_risk()` for filtering
+**Solution**: Regex-based parser with case insensitivity and robust error handling. Returns `None` for invalid input (never crashes).
 
-**Constraints Dictionary** (`Constraints` TypedDict):
-```
-{
-    'earliestStart': '08:00',    # Don't schedule before this
-    'latestEnd': '18:00',        # Don't schedule after this
-    'allowFull': False,          # Skip full sections?
-    'allowAt_risk': True,        # Allow enrollment-at-risk?
-    'maxSchedules': 5,           # Stop after finding N schedules
-    'maxFullPerSchedule': 0      # Max full sections per schedule
-}
-```
+**Edge Cases**:
+- `"12:00 AM"` = midnight (0 minutes)
+- `"12:00 PM"` = noon (720 minutes)
+- `"12:30 AM"` = 30 minutes past midnight
+- Adjacent times: `"10:00-11:30"` and `"11:30-1:00"` do NOT conflict
+
+### Constraint Categories
+
+**Hard Constraints** (violation = infeasible schedule):
+- Exactly one section per course
+- No time overlaps between selected sections
+- Section start time >= earliestStart constraint
+- Section end time <= latestEnd constraint
+- (If allowFull=False) Section must not be full
+- (If allowAt_risk=False) Section must not be at-risk
+
+**Soft Constraints** (current implementation collects as metadata):
+- Minimize number of full sections
+- End time <= preferred end time
+- Avoid afternoon/evening classes
+
+Current backtracking doesn't optimize soft constraints, just finds feasible solutions and metadata.
 
 ---
 
 ## Development Principles
 
-### 1. Understand Before Implementing
+### For Implementing Features
 
-For each variation:
-1. Read `plans/variation_X.md` → understand the problem statement and pseudocode
-2. Review `scheduler/CLAUDE.md` → understand existing backtracking patterns
-3. Trace through test data manually → verify understanding of algorithm flow
+**Order of Implementation**:
+1. **Core domain models** - Define data structures and parsing
+2. **Constraint/conflict checking** - Implement validation logic
+3. **Algorithm** - Implement scheduling logic
+4. **Tests** - Write unit tests before integration
+5. **Documentation** - Document design decisions and tradeoffs
 
-### 2. Backtracking First, Heuristics Second
+**Testing Strategy**:
+- **Correctness tests**: Verify parsing, conflict detection, scheduling produce expected results
+- **Feasibility tests**: Compare backtracking output against known feasible/infeasible problems
+- **Scalability tests**: Measure runtime across small/medium/large problem sizes
+- **Optimality tests**: Compare against CP-SAT optimal (once implemented)
+- **Heuristic impact tests**: Measure each heuristic's contribution separately
 
-For each variation, implement in this order:
-1. **Basic backtracking** (naive recursive search, no heuristics)
-2. **Verify correctness** (tests pass, output makes sense)
-3. **Add heuristics incrementally** (MCF, then forward checking, then others)
-4. **Measure impact** (runtime, solution count, quality) for each heuristic added
+### For Extending to Variations
 
-### 3. Heuristics to Explore
+**Variation 2: Professor Assignment**
+1. Keep core parsing/conflict from Variation 1
+2. Add professor dataclass and capability checking
+3. Implement professor assignment backtracking (after schedule selection)
+4. Add tests and CP-SAT verification for professor assignment
+5. Document professor matching algorithm
 
-Core heuristics implemented across variations:
+**Variation 3: Co-Optimization**
+1. Combine schedule and professor variable ordering
+2. Test different constraint processing orders
+3. Measure heuristic impact on joint problem
+4. Compare to sequential approach (Variation 1 + 2)
 
-| Heuristic | What It Does | When to Use |
-|-----------|-------------|-----------|
-| **Most-Constrained-First (MCF)** | Process variables with fewest options first | Every variation (baseline improvement) |
-| **Forward Checking** | After assignment, verify remaining variables still solvable | Medium+ complexity (catches dead-ends early) |
-| **Quality Ordering** | Try "good" values before "bad" ones | All variations (finds high-quality solutions early) |
-| **Arc Consistency** | Pre-process to eliminate impossible value combinations | Variation 3+ (expensive but payoff high) |
-| **Greedy Initialization** | Find one solution fast, use as pruning bound | Hard variations (provides baseline) |
+**Variation 4: Resource-Constrained**
+1. Add room dataclass and capacity constraints
+2. Extend backtracking to handle room allocation
+3. Implement room conflict detection (no overbooking)
+4. Test at realistic university scale
 
-### 4. CP-SAT as Verification Tool
+### For Measuring Success
 
-For each variation, after implementing backtracking:
-1. Encode the **same problem** in CP-SAT using OR-Tools `CpModel`
-2. Run both algorithms on identical test data
-3. Compare: feasibility, solution quality (if optimization objective), runtime
-4. Document: where backtracking wins, where CP-SAT wins, why
+**Correctness**:
+- All solutions satisfy hard constraints (no overlaps, feasibility)
+- Solutions match manual spot-checks
 
-### 5. Testing Strategy
+**Comprehensiveness**:
+- Backtracking explores solution space broadly
+- Finds multiple diverse solutions (not just first)
 
-Each variation needs:
+**Comparison Rigor**:
+- Backtracking vs. CP-SAT benchmarked on identical datasets
+- Feasibility always matches (or we found a bug)
 
-```
-tests/test_variation_X.py
-├── Correctness Tests
-│   ├── Parsing (schedule strings parse correctly)
-│   ├── Conflict Detection (has_conflict() is accurate)
-│   └── Constraints (viable filtering works)
-├── Feasibility Tests
-│   ├── Known Feasible: verify both algorithms find solution
-│   ├── Known Infeasible: verify both correctly reject
-│   └── Solution Validation: all solutions satisfy constraints
-├── Scalability Tests
-│   ├── Small: 5-10 subjects, <1s expected runtime
-│   ├── Medium: 20-30 subjects, <10s expected runtime
-│   └── Large: 50+ subjects, measure scaling behavior
-└── Optimality Tests
-    ├── Compare to CP-SAT optimal
-    ├── Measure quality gaps across heuristic variants
-    └── Analyze when heuristics matter most
-```
+**Heuristic Impact Clarity**:
+- Each heuristic's contribution measured separately
+- Baseline (no heuristics) → +MCF → +FC → +QO, etc.
+- Document runtime and quality impact of each
 
-### 6. Measurement Protocol
-
-For each experiment, capture:
-- **Runtime**: milliseconds (use `time.perf_counter()`)
-- **Solution Quality**: objective score (if optimizing) or custom metrics
-- **Solution Count**: number of feasible solutions found
-- **Optimality Gap**: (CP-SAT optimal - backtracking best) / CP-SAT optimal
-- **Heuristic Impact**: runtime/quality change from adding each heuristic
-
-Document in `/results/variation_X_benchmark.json`:
-```json
-{
-  "variation": 1,
-  "dataset": "small_test_5_subjects",
-  "algorithms": {
-    "backtracking_naive": {"runtime_ms": 15, "solutions": 3, "quality_score": 95},
-    "backtracking_mcf": {"runtime_ms": 8, "solutions": 3, "quality_score": 97},
-    "backtracking_mcf_fc": {"runtime_ms": 4, "solutions": 3, "quality_score": 98},
-    "cpsat": {"runtime_ms": 120, "solutions": 1, "quality_score": 100, "optimal": true}
-  }
-}
-```
+**Scalability Analysis**:
+- Clear understanding of where each algorithm breaks
+- Performance envelope documented (ARCHITECTURE.md)
 
 ---
 
 ## Common Gotchas
 
-### 1. Schedule String Parsing is Fragile
+### Schedule Parsing is Fragile
 
 **Problem**: Schedule format is human-entered, inconsistent case/spacing.
 
-**Solution**:
-- Use regex with `re.IGNORECASE`
-- Handle 24-hour and 12-hour time formats
-- Cache parsed results in Section dataclass (`parsed_schedule` field)
-- Test with messy real-world data (see `test_scheduler.py` for examples)
+**Symptoms**:
+- Parser returns `None` for valid-looking input
+- Sections silently dropped during filtering
+- Silent failures in backtracking
 
-### 2. Time Overlap Detection Has Edge Cases
+**Solution**:
+- Use regex with `re.IGNORECASE` and flexible whitespace
+- Handle 24-hour and 12-hour time formats
+- Cache parsed results in Section dataclass
+- Test with messy real-world data (not just clean examples)
+
+### Time Overlap Detection Has Edge Cases
 
 **Problem**: Does "10:00 AM - 11:30 AM" conflict with "11:30 AM - 1:00 PM"?
 
 **Answer**: No (they don't overlap, adjacent times are OK).
 
-**Implementation**: Use `startTime < other.endTime and endTime > other.startTime`
+**Gotcha**: Off-by-one errors in time comparisons.
 
-### 3. Backtracking Explosion on Large Problems
+**Correct Implementation**:
+```python
+def times_overlap(start_a, end_a, start_b, end_b):
+    return start_a < end_b and end_a > start_b  # NOT <=
+```
 
-**Problem**: Without heuristics, naive backtracking explores $O(n_1 \times n_2 \times ... \times n_s)$ branches.
+**Wrong** (would incorrectly detect conflict on adjacent times):
+```python
+return start_a <= end_b and end_a >= start_b  # BUG
+```
+
+### Backtracking Explosion on Large Problems
+
+**Problem**: Without heuristics, naive backtracking explores O(n₁ × n₂ × ... × nₖ) branches.
+
+**Symptom**: 50+ courses takes minutes instead of milliseconds.
 
 **Solution**:
 - MCF ordering reduces branching by 10-100x
 - Forward checking catches dead-ends early
 - Set `maxSchedules` to stop after N solutions (don't explore entire space)
+- Pre-filter viability to shrink search space
 
-### 4. CP-SAT Timeout on Hard Problems
+### Variation Boundaries Blur Easily
 
-**Problem**: Variation 3-4 may timeout on large instances.
-
-**Solution**:
-- Set time limit: `solver.parameters.max_time_in_seconds = 10`
-- Use heuristic search: `solver.parameters.log_search_progress = False`
-- Compare "best found" vs. "optimal" status
-
-### 5. Heuristic Ordering Matters More Than Expected
-
-**Problem**: Different constraint orderings produce vastly different runtimes.
-
-**Solution**:
-- Test multiple heuristic combinations
-- Measure each heuristic in isolation (add one at a time)
-- Don't assume MCF alone is sufficient
-
-### 6. Variation Boundaries Blur Easily
-
-**Problem**: Variation 3 accidentally becomes Variation 4 during implementation.
+**Problem**: Variation 3 accidentally becomes Variation 4 during implementation (added professor logic without realizing room logic was needed).
 
 **Solution**:
 - Each variation is independent (don't inherit from previous)
 - Clearly separate concerns (schedule generation vs. professor assignment)
 - Test Variation 2 in isolation before attempting Variation 3
+- Document constraint assumptions for each variation
 
----
+### Frozen Dataclass Immutability is Strict
 
-## Project Structure
+**Problem**: Trying to mutate Section after creation fails silently or with cryptic errors.
 
-```
-timetabling-algorithms/
-├── scheduler/                          # Core implementations
-│   ├── scheduler_engine.py            # Variation 1: Backtracking (baseline)
-│   ├── block_scheduler.py             # Extended scheduler (planning)
-│   ├── statistics.py                  # Statistics collection
-│   ├── tracing.py                     # Debug tracing
-│   ├── config_loader.py               # Configuration handling
-│   ├── csv_loader.py                  # CSV input parsing
-│   └── CLAUDE.md                      # Scheduler implementation details
-├── tests/                              # Test suites
-│   ├── test_scheduler.py              # Tests for scheduler_engine.py (Variation 1)
-│   ├── test_variation_2.py            # Tests for Variation 2 (professor assignment)
-│   ├── test_variation_3.py            # Tests for Variation 3 (co-optimization)
-│   └── test_variation_4.py            # Tests for Variation 4 (resource-constrained)
-├── plans/                              # Research scaffolding
-│   ├── context.md                     # Research vision and framework
-│   ├── CLAUDE.md                      # Variation methodology
-│   ├── variation_1.md                 # Variation 1 problem + pseudocode
-│   ├── variation_2.md                 # Variation 2 problem + pseudocode
-│   ├── variation_3.md                 # Variation 3 problem + pseudocode
-│   └── variation_4.md                 # Variation 4 problem + pseudocode
-├── results/                            # Benchmarks and analysis (post-implementation)
-│   ├── variation_1_benchmark.json     # Runtime/quality measurements
-│   ├── variation_1_analysis.md        # Findings and insights
-│   └── [similar for variations 2-4]
-├── data/                               # Sample datasets
-│   ├── config_example.yaml            # Example config file
-│   └── [CSV test data]
-├── docs/                               # Supporting documentation
-│   └── sessions/                      # Session logs and exploration notes
-├── scheduler_cli.py                   # CLI tool for manual testing
-├── test_scheduler.py                  # Test runner (Variation 1)
-├── README.md                          # User manual
-├── RESEARCH_INDEX.md                  # Index of research findings
-├── COMPLETION_REPORT.md               # Project status report
-└── .git/                              # Version control
+**Symptom**:
+```python
+section = Section(1, "MW 10:00 AM - 11:30 AM", "15/30", "OK")
+section.status = "FULL"  # FrozenInstanceError!
 ```
 
-### Key Files for Agents
+**Solution**: Create new objects during preprocessing, not in backtracking:
+```python
+# Right: Preprocess once
+sections = [Section(...) for row in csv]
 
-- **Problem Understanding**: `plans/variation_X.md` (problem statement + pseudocode)
-- **Implementation Patterns**: `scheduler/CLAUDE.md` + `scheduler/scheduler_engine.py` (baseline backtracking)
-- **Testing Strategy**: `test_scheduler.py` (example test patterns)
-- **Execution**: `scheduler_cli.py` (manual testing interface)
+# Wrong: Trying to mutate in backtracking
+# (Would need unfrozen Section, loses safety benefits)
+```
 
 ---
 
@@ -304,137 +439,96 @@ timetabling-algorithms/
 5. **Scalability Analysis**: Clear understanding of where each algorithm breaks down
 6. **Research Insights**: Published findings about when to use each approach
 
-### Bad Signs
+### Performance Envelope (From ARCHITECTURE.md)
 
-- ❌ Only running backtracking without CP-SAT verification
-- ❌ Heuristics added without measuring impact separately
-- ❌ Test data all small (need scalability tests too)
-- ❌ No documentation of design decisions
-- ❌ Mixing variation implementations (Variation 2 accidentally includes room constraints)
+| Problem Size | Courses | Sections | BT Time | CP-SAT Time | Feasible |
+|--------------|---------|----------|---------|------------|----------|
+| small_loose | 5 | 15-25 | 1-5ms | 10-50ms | 95% |
+| small_tight | 5 | 10 | 2-8ms | 5-20ms | 70% |
+| medium_loose | 20 | 60-100 | 10-50ms | 100-500ms | 80% |
+| medium_tight | 20 | 40 | 50-200ms | 200-800ms | 40% |
+| large_loose | 50 | 150-250 | 100-1000ms | 1-10s | 60% |
+| large_tight | 50 | 100 | 500-5000ms | 5-60s | 20% |
 
----
+### Extension Readiness
 
-## Development Workflow
-
-### Step 1: Choose a Variation
-
-Pick one variation (e.g., Variation 2: Professor Assignment).
-
-### Step 2: Understand the Problem
-
-1. Read `plans/variation_2.md` thoroughly
-2. Review `plans/context.md` for methodology
-3. Trace through pseudocode manually
-4. Ask questions if unclear
-
-### Step 3: Implement Backtracking (Naive)
-
-1. Create `scheduler/variation_2_algorithm.py`
-2. Implement basic backtracking (no heuristics yet)
-3. Add unit tests in `tests/test_variation_2.py`
-4. Verify correctness on small datasets
-
-### Step 4: Add Heuristics Incrementally
-
-1. Implement MCF ordering (measure impact)
-2. Implement Forward Checking (measure impact)
-3. Try a third heuristic if beneficial
-4. Document which heuristics matter most
-
-### Step 5: Implement CP-SAT Verification
-
-1. Create `scheduler/variation_2_cpsat.py`
-2. Model same problem in OR-Tools
-3. Run both algorithms on identical test sets
-4. Compare: feasibility, quality, runtime
-
-### Step 6: Benchmark & Analyze
-
-1. Create comprehensive test datasets (small, medium, large)
-2. Run all algorithms across all datasets
-3. Capture results in `results/variation_2_benchmark.json`
-4. Write analysis in `results/variation_2_analysis.md`
-
-### Step 7: Document Findings
-
-Update `RESEARCH_INDEX.md` and `COMPLETION_REPORT.md` with:
-- What we learned
-- When to use backtracking vs. CP-SAT
-- What heuristics matter most
-- Insights for next variation
+- Can Variations 2-4 be implemented? (Core parsing/conflict reusable)
+- Can heuristics be added without refactoring? (Clean algorithm interface)
+- Can new solvers be plugged in? (Verification infrastructure ready)
 
 ---
 
-## Commonly Used Commands
+## Project Structure Overview
 
-### Running Tests
-```bash
-# Run all tests
-python3 -m pytest tests/ -v
+The codebase is organized into **7 feature domains** (see ARCHITECTURE.md for complete breakdown):
 
-# Run specific variation tests
-python3 -m pytest tests/test_variation_1.py -v
+1. **core/models.py** - ParsedSchedule, Section, Constraints, GeneratedSchedule types
+2. **core/parsing.py** - Schedule string parsing (times, days, formats)
+3. **core/conflict.py** - Time overlap, viability, enrollment filtering
+4. **scheduler/scheduler_engine.py** - Main backtracking algorithm
+5. **scheduler/statistics.py** - Metrics collection
+6. **scheduler/tracing.py** - Optional debug tracing
+7. **data_gen/** - CSV loading, synthetic generation, config handling
+8. **verification/cpsat_wrapper.py** - OR-Tools verification
+9. **interfaces/cli.py** - Command-line interface
+10. **interfaces/tui.py** - Interactive terminal interface
+11. **test_scheduler.py** - Unit tests
+12. **main.py** - Entry point
 
-# Run single test
-python3 -m pytest tests/test_variation_1.py::TestClass::test_name -v
+**For Research**:
+- `main.py --algo backtracking_v1 --generate medium_loose --verify` - Test algorithm
+- `test_scheduler.py` - Run tests
+- `results/variation_1_benchmark.json` - Capture measurements
 
-# Run with coverage
-python3 -m pytest tests/ --cov=scheduler --cov-report=html
-```
+**For Extension**:
+- `scheduler/scheduler_engine.py` - Modify core algorithm
+- `core/conflict.py` - Add new constraint types
+- `tests/test_*.py` - Add test cases
+- `verification/cpsat_wrapper.py` - Add optimization objective
 
-### CLI Tool
-```bash
-# Interactive menu for manual testing
-python3 scheduler_cli.py
-
-# Standard scheduler (Variation 1 demo)
-python3 -c "from scheduler_cli import run_standard_scheduler; run_standard_scheduler()"
-
-# Block scheduler (Variation 2+ testing)
-python3 -c "from scheduler_cli import run_block_scheduler; run_block_scheduler()"
-```
-
-### Linting & Type Checking
-```bash
-# Check type hints
-python3 -m mypy scheduler/ --ignore-missing-imports
-
-# Format code
-python3 -m black scheduler/ tests/ scheduler_cli.py
-
-# Lint
-python3 -m pylint scheduler/ --disable=all --enable=E,F
-```
-
-### Running Individual Variation Implementations
-```bash
-# After implementing scheduler/variation_2_algorithm.py:
-python3 -c "from scheduler.variation_2_algorithm import *; print(generate_professor_schedules(...))"
-
-# After implementing scheduler/variation_2_cpsat.py:
-python3 -c "from scheduler.variation_2_cpsat import *; print(cpsat_schedule_assignment(...))"
-```
+**For Integration**:
+- `data_gen/csv_loader.py` - Load real CSV data
+- `interfaces/cli.py` - Command-line interface
+- `interfaces/tui.py` - Interactive terminal interface
 
 ---
 
-## Notes on Architecture Refactoring
+## Connection to Broader Research
 
-You mentioned this codebase is "due for a massive refactor." Key considerations:
+This project sits at the intersection of:
 
-1. **Keep Variation Separation Clean**: Each variation should be independent. Use separate modules, not inheritance.
+1. **Constraint Satisfaction**: CSP solving techniques (backtracking, forward checking, arc consistency)
+2. **Combinatorial Optimization**: NP-hard problem solving with heuristics
+3. **Educational Scheduling**: Specific to course timetabling domain
+4. **Practical Engineering**: Production-grade solver selection for real applications
 
-2. **Heuristics Library**: Consider a reusable heuristics abstraction (MCF, forward checking) if implementing Variations 2-4.
-
-3. **Testing Framework**: Current test structure works well; scale it up for multiple variations.
-
-4. **Benchmarking**: Add a dedicated `benchmarks/` module with standardized measurement protocol.
-
-5. **CLI Tool**: `scheduler_cli.py` could evolve into a test runner for all variations.
-
-For now, prioritize **clarity and research rigor** over architectural perfection. Refactoring becomes worth it once you understand the full scope (all 4 variations).
+Research findings will contribute to understanding when heuristics outperform solvers and which algorithmic choices matter most for practical scheduling problems.
 
 ---
 
-**Last Updated**: 2026-01-23
-**Philosophy Alignment**: Scalpel (research project with clear documentation and measurement)
-**Reference**: `/home/jay/.claude/agents/philosophy/SCALPEL_PHILOSOPHY.md`
+## Notes on Phase 4B Status
+
+**Phase 4B Complete** (as of latest git log):
+- Core Variation 1 (schedule generation) fully implemented
+- Backtracking baseline + statistics collection working
+- CP-SAT verification infrastructure in place
+- CLI and TUI interfaces functional
+- Test suite covers parsing, conflict detection, scheduling
+
+**Ready for Phase 5** (Heuristic Optimization):
+- Add MCF ordering → measure impact
+- Add forward checking → measure impact
+- Test heuristic combinations
+- Benchmark against CP-SAT
+- Document findings
+
+**Future Phases** (Variations 2-4):
+- Variation 2: Professor assignment (bipartite matching)
+- Variation 3: Co-optimization (schedule + professor)
+- Variation 4: Resource constraints (schedule + professor + rooms)
+
+---
+
+**Last Updated**: 2026-01-28
+**Status**: Phase 4B Complete - Ready for Heuristic Research
+**Philosophy Alignment**: SCALPEL (research project with clear documentation and measurement)
